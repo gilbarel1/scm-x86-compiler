@@ -722,6 +722,16 @@ module Tag_Parser : TAG_PARSER = struct
        then raise (X_syntax "Variable cannot be a reserved word")
        else ScmVarGet(Var var)
     (* add support for if *)
+    | ScmPair (ScmSymbol "if", 
+               ScmSymbol (test, ScmPair(dit, ScmPair(dif, ScmNil)))) ->
+        ScmIf(tag_parse test,
+              tag_parse dit,
+              tag_parse dif)
+    | ScmPair (ScmSymbol "if",
+               ScmPair (test, ScmPair (dit, ScmNil))) ->
+        ScmIf (tag_parse test,
+               tag_parse dit
+               tag_parse ScmVoid)
     | ScmPair (ScmSymbol "or", ScmNil) -> tag_parse (ScmBoolean false)
     | ScmPair (ScmSymbol "or", ScmPair (sexpr, ScmNil)) -> tag_parse sexpr
     | ScmPair (ScmSymbol "or", sexprs) ->
