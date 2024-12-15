@@ -721,7 +721,10 @@ module Tag_Parser : TAG_PARSER = struct
        if (is_reserved_word var)
        then raise (X_syntax "Variable cannot be a reserved word")
        else ScmVarGet(Var var)
-    (* add support for if *)
+    | ScmPair (ScmSymbol "if", ScmPair (testExp, ScmPair (thenExp, ScmPair (elseExp, ScmNil)))) ->
+      ScmIf(tag_parse testExp,
+            tag_parse thenExp,
+            tag_parse elseExp)
     | ScmPair (ScmSymbol "or", ScmNil) -> tag_parse (ScmBoolean false)
     | ScmPair (ScmSymbol "or", ScmPair (sexpr, ScmNil)) -> tag_parse sexpr
     | ScmPair (ScmSymbol "or", sexprs) ->
@@ -729,6 +732,12 @@ module Tag_Parser : TAG_PARSER = struct
         | (sexprs', ScmNil) -> ScmOr (List.map tag_parse sexprs')
         | _ -> raise (X_syntax "Malformed or-expression!"))
     (* add support for begin *)
+    | ScmPair (ScmSymbol "begin", ScmNil) -> ScmConst(ScmVoid)
+    | ScmPair (ScmSymbol "begin", ScmPair(sexpr, ScmNil)) -> tag_parse sexpr
+    | ScmPair (ScmSymbol "begin", sexprs) ->
+      (match (scheme_list_to_ocaml sexprs) with
+        | (sexprs', ScmNil) -> ScmSeq(List.map tag_parse sexprs')
+        | _ -> raise (X_syntax "Malformed begin-expression!"))
     | ScmPair (ScmSymbol "set!",
                ScmPair (ScmSymbol var,
                         ScmPair (expr, ScmNil))) ->
@@ -738,6 +747,11 @@ module Tag_Parser : TAG_PARSER = struct
     | ScmPair (ScmSymbol "set!", _) ->
        raise (X_syntax "Malformed set!-expression!")
     (* add support for define *)
+    | ScmPair (ScmSymbol "define", ScmPair(ScmSymbol var, ScmPair(expr, ScmNil))) ->
+      if(is_reserved_word var)
+      then raise (X_syntax "cannot define a reserved word")
+      else ScmVarDef(Var var, tag_parse expr)
+    (* need to check if there are other variations of define *)
     | ScmPair (ScmSymbol "lambda", rest)
          when scm_improper_list rest ->
        raise (X_syntax "Malformed lambda-expression!")
