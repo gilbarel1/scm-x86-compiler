@@ -533,7 +533,6 @@ let sprint_sexprs chan sexprs =
   Printf.sprintf "[%s]"
     (String.concat "; "
        (List.map string_of_sexpr sexprs));;
-
 let scheme_sexpr_list_of_sexpr_list sexprs =
   List.fold_right (fun car cdr -> ScmPair (car, cdr)) sexprs ScmNil;;
 
@@ -708,6 +707,14 @@ module Tag_Parser : TAG_PARSER = struct
       | (name : string) :: rest when not (List.mem name rest) -> run rest
       | _ -> false
     in run;;
+    (*This function extracts names and values from bindings and returns a tuple of two lists: (names, values) 
+      Will be used for let expressions*)
+  let rec extract_names_and_values = function
+    | ScmNil -> ([], [])
+    | ScmPair (ScmPair (name, ScmPair (value, ScmNil)), ribs) ->
+      let (names, values) = extract_names_and_values ribs in
+      (name :: names, value :: values)
+    | _ -> raise (X_syntax "Invalid let-rib structure");;  
 
   let rec tag_parse sexpr =
     match sexpr with
@@ -746,12 +753,15 @@ module Tag_Parser : TAG_PARSER = struct
        else ScmVarSet(Var var, tag_parse expr)
     | ScmPair (ScmSymbol "set!", _) ->
        raise (X_syntax "Malformed set!-expression!")
-    (* add support for define *)
+    | ScmPair (ScmSymbol "define", ScmPair(ScmPair(ScmSymbol var, params), expr)) ->
+       let expr = tag_parse (ScmPair(ScmSymbol "lambda", ScmPair(params, expr))) in
+       if(is_reserved_word var)
+       then raise (X_syntax "cannot define a reserved word")
+       else ScmVarDef(Var var, expr)
     | ScmPair (ScmSymbol "define", ScmPair(ScmSymbol var, ScmPair(expr, ScmNil))) ->
       if(is_reserved_word var)
       then raise (X_syntax "cannot define a reserved word")
       else ScmVarDef(Var var, tag_parse expr)
-    (* need to check if there are other variations of define *)
     | ScmPair (ScmSymbol "lambda", rest)
          when scm_improper_list rest ->
        raise (X_syntax "Malformed lambda-expression!")
@@ -770,7 +780,15 @@ module Tag_Parser : TAG_PARSER = struct
            else raise (X_syntax "duplicate function parameters")
         | _ -> raise (X_syntax "invalid parameter list"))
     (* add support for let *)
+    | ScmPair (ScmSymbol "let", ScmPair (ribs, exprs)) ->
+      let (names, values) = extract_names_and_values ribs in 
+      let names = scheme_sexpr_list_of_sexpr_list names (* convert to scheme list *)
+      and values = scheme_sexpr_list_of_sexpr_list values in 
+       tag_parse (ScmPair (ScmPair (ScmSymbol "lambda", ScmPair (names, exprs)), values))
+      
     (* add support for let* *)
+    | ScmPair (ScmSymbol "let*", ScmPair (ScmNil, exprs)) ->
+      tag_parse (ScmPair (ScmSymbol "let", ScmPair (ScmNil, exprs)))
     (* add support for letrec *)
     | ScmPair (ScmSymbol "and", ScmNil) -> tag_parse (ScmBoolean true)
     | ScmPair (ScmSymbol "and", exprs) ->
