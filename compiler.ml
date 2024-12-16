@@ -728,6 +728,10 @@ module Tag_Parser : TAG_PARSER = struct
        if (is_reserved_word var)
        then raise (X_syntax "Variable cannot be a reserved word")
        else ScmVarGet(Var var)
+    | ScmPair (ScmSymbol "if", ScmPair (testExp, ScmPair (thenExp, ScmNil))) ->
+        ScmIf(tag_parse testExp,
+              tag_parse thenExp,
+              ScmConst(ScmVoid))
     | ScmPair (ScmSymbol "if", ScmPair (testExp, ScmPair (thenExp, ScmPair (elseExp, ScmNil)))) ->
       ScmIf(tag_parse testExp,
             tag_parse thenExp,
@@ -789,6 +793,10 @@ module Tag_Parser : TAG_PARSER = struct
     (* add support for let* *)
     | ScmPair (ScmSymbol "let*", ScmPair (ScmNil, exprs)) ->
       tag_parse (ScmPair (ScmSymbol "let", ScmPair (ScmNil, exprs)))
+    | ScmPair (ScmSymbol "let*", ScmPair (ScmPair (ScmPair (var, ScmPair (value, ScmNil)), ScmNil), exprs)) ->
+      tag_parse (ScmPair (ScmSymbol "let", ScmPair (ScmPair (ScmPair (var, ScmPair (value, ScmNil)), ScmNil), exprs)))
+    | ScmPair (ScmSymbol "let*", ScmPair (ScmPair (ScmPair (var, ScmPair (value, ScmNil)), ribs), exprs)) ->
+      tag_parse (ScmPair (ScmSymbol "let", ScmPair (ScmPair (ScmPair (var, ScmPair (value, ScmNil)), ScmNil), ScmPair (ScmPair (ScmSymbol "let*", ScmPair (ribs, exprs)), ScmNil))))
     (* add support for letrec *)
     | ScmPair (ScmSymbol "and", ScmNil) -> tag_parse (ScmBoolean true)
     | ScmPair (ScmSymbol "and", exprs) ->
