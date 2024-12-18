@@ -802,7 +802,7 @@ module Tag_Parser : TAG_PARSER = struct
                 List.map snd ribs)   
 
 
-    (* add support for let* *)
+    (* let* *)
     | ScmPair (ScmSymbol "let*", ScmPair (bindings, body)) ->
       let ribs =
         List.fold_left (fun acc_binding (ScmPair (ScmSymbol var, ScmPair (value, ScmNil))) ->
@@ -810,19 +810,36 @@ module Tag_Parser : TAG_PARSER = struct
           (var, value_expr) :: acc_binding
         ) [] (scheme_list_to_ocaml bindings |> fst)
       in
-      let rec build_let_star ribs body =
+      let rec execute_let_star ribs body =
         match ribs with
         | [] -> tag_parse (ScmPair (ScmSymbol "begin", body))
         | (var, value_expr) :: rest ->
-            let body_with_var = build_let_star rest body in
-            let lambda = ScmLambda ([var], Simple, body_with_var) in
+            let updated_body = execute_let_star rest body in
+            let lambda = ScmLambda ([var], Simple, updated_body) in
             ScmApplic (lambda, [value_expr])  
       in
       let reversed_ribs = List.rev ribs in
-      build_let_star reversed_ribs body
+      execute_let_star reversed_ribs body
 
+    (* letrec *)
+    | ScmPair (ScmSymbol "letrec", ScmPair (bindings, body)) -> 
+      let ribs = 
+        List.map (function
+          | ScmPair (ScmSymbol var, ScmPair (lambda_expr, ScmNil)) -> 
+              let value_expr = tag_parse lambda_expr in
+              (var, value_expr)
+          | _ -> raise (X_syntax "Malformed letrec expression!"))
+        (scheme_list_to_ocaml bindings |> fst)
+      in
+      let rib_bindings = List.map (fun (var, expr) -> ScmVarSet (Var var, expr)) ribs in
+      let updated_body = tag_parse (ScmPair (ScmSymbol "begin", body)) in
+      ScmApplic (
+        ScmLambda (["fact"], 
+        Simple, 
+        ScmSeq (rib_bindings @ [updated_body])),
+        [ScmConst (ScmSymbol "whatever")]
+      )
 
-    (* add support for letrec *)
     | ScmPair (ScmSymbol "and", ScmNil) -> tag_parse (ScmBoolean true)
     | ScmPair (ScmSymbol "and", exprs) ->
        (match (scheme_list_to_ocaml exprs) with
