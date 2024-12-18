@@ -803,6 +803,25 @@ module Tag_Parser : TAG_PARSER = struct
 
 
     (* add support for let* *)
+    | ScmPair (ScmSymbol "let*", ScmPair (bindings, body)) ->
+      let ribs =
+        List.fold_left (fun acc_binding (ScmPair (ScmSymbol var, ScmPair (value, ScmNil))) ->
+          let value_expr = tag_parse value in
+          (var, value_expr) :: acc_binding
+        ) [] (scheme_list_to_ocaml bindings |> fst)
+      in
+      let rec build_let_star ribs body =
+        match ribs with
+        | [] -> tag_parse (ScmPair (ScmSymbol "begin", body))
+        | (var, value_expr) :: rest ->
+            let body_with_var = build_let_star rest body in
+            let lambda = ScmLambda ([var], Simple, body_with_var) in
+            ScmApplic (lambda, [value_expr])  
+      in
+      let reversed_ribs = List.rev ribs in
+      build_let_star reversed_ribs body
+
+
     (* add support for letrec *)
     | ScmPair (ScmSymbol "and", ScmNil) -> tag_parse (ScmBoolean true)
     | ScmPair (ScmSymbol "and", exprs) ->
