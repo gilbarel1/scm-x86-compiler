@@ -731,7 +731,7 @@ module Tag_Parser : TAG_PARSER = struct
                ScmPair (test, ScmPair (dit, ScmNil))) ->
         ScmIf (tag_parse test,
                tag_parse dit,
-               tag_parse ScmNil)
+               tag_parse ScmVoid)
     | ScmPair (ScmSymbol "or", ScmNil) -> tag_parse (ScmBoolean false)
     | ScmPair (ScmSymbol "or", ScmPair (sexpr, ScmNil)) -> tag_parse sexpr
     | ScmPair (ScmSymbol "or", sexprs) ->
@@ -803,23 +803,23 @@ module Tag_Parser : TAG_PARSER = struct
 
 
     (* let* *)
-    | ScmPair (ScmSymbol "let*", ScmPair (bindings, body)) ->
-      let ribs =
-        List.fold_left (fun acc_binding (ScmPair (ScmSymbol var, ScmPair (value, ScmNil))) ->
-          let value_expr = tag_parse value in
-          (var, value_expr) :: acc_binding
-        ) [] (scheme_list_to_ocaml bindings |> fst)
+    | ScmPair (ScmSymbol "let*", ScmPair (bindings, exprs)) ->
+      let parse_binding (ScmPair (ScmSymbol var, ScmPair (value, ScmNil))) =
+        (var, tag_parse value) 
       in
+      let ribs = List.map parse_binding (scheme_list_to_ocaml bindings |> fst) in
       let rec execute_let_star ribs body =
         match ribs with
         | [] -> tag_parse (ScmPair (ScmSymbol "begin", body))
         | (var, value_expr) :: rest ->
             let updated_body = execute_let_star rest body in
             let lambda = ScmLambda ([var], Simple, updated_body) in
-            ScmApplic (lambda, [value_expr])  
+            ScmApplic (lambda, [value_expr])
       in
-      let reversed_ribs = List.rev ribs in
-      execute_let_star reversed_ribs body
+      if bindings = ScmNil then
+        tag_parse (ScmPair (ScmSymbol "let", ScmPair (ScmNil, exprs)))
+      else
+        execute_let_star ribs exprs
 
     (* letrec *)
     | ScmPair (ScmSymbol "letrec", ScmPair (bindings, body)) -> 
