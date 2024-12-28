@@ -1050,10 +1050,10 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
          ScmIf' (run test params env,
                  run dit params env,
                  run dif params env)
-      (* add support for sequence *)
+      (* sequence *)
       | ScmSeq(exprs) ->
          ScmSeq' (List.map (fun expr -> run expr params env) exprs)
-      (* add support for or *)
+      (* or *)
       | ScmOr(exprs) ->
          ScmOr' (List.map (fun expr -> run expr params env) exprs)
       | ScmVarSet(Var v, expr) ->
@@ -1064,7 +1064,7 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
          ScmVarDef' (Var' (v, Free), run expr params env)
       | ScmLambda (params', Simple, expr) ->
          ScmLambda' (params', Simple, run expr params' (params :: env))
-      (* add support for lambda-opt *)
+      (* lambda-opt *)
       | ScmLambda (params', Opt opt, expr) ->
          ScmLambda' (params' @ [opt], Opt opt, run expr (params' @ [opt]) (params :: env))
       | ScmApplic (proc, args) ->
@@ -1084,18 +1084,26 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
          ScmIf' (run false test,
                  run in_tail dit,
                  run in_tail dif)
-      (* add support for sequences *)
+      (* sequences *)
       | ScmSeq' (expr :: exprs) ->
           ScmSeq' (runl in_tail expr exprs)
          
-      (* add support for or *)
+      (* or *)
+      | ScmOr' (expr :: exprs) ->
+         ScmOr' (runl in_tail expr exprs)
       | ScmVarSet' (var', expr') -> ScmVarSet' (var', run false expr')
       | ScmVarDef' (var', expr') -> ScmVarDef' (var', run false expr')
       | (ScmBox' _) as expr' -> expr'
       | (ScmBoxGet' _) as expr' -> expr'
       | ScmBoxSet' (var', expr') -> ScmBoxSet' (var', run false expr')
-      (* add support for lambda *)
-      (* add support for applic *)
+      (* lambda *)
+      | ScmLambda' (params, kind, expr) ->
+         ScmLambda' (params, kind, run true expr)
+      (* applic *)
+      | ScmApplic' (proc, args, app_kind) ->
+         ScmApplic' (run false proc,
+                     List.map (run false) args,
+                     (if in_tail then Tail_Call else Non_Tail_Call))
     and runl in_tail expr = function
       | [] -> [run in_tail expr]
       | expr' :: exprs -> (run false expr) :: (runl in_tail expr' exprs)
