@@ -834,7 +834,7 @@ module Tag_Parser : TAG_PARSER = struct
       let rib_bindings = List.map (fun (var, expr) -> ScmVarSet (Var var, expr)) ribs in
       let updated_body = tag_parse (ScmPair (ScmSymbol "begin", body)) in
       ScmApplic (
-        ScmLambda (["fact"], 
+        ScmLambda (List.map fst ribs, 
         Simple, 
         ScmSeq (rib_bindings @ [updated_body])),
         [ScmConst (ScmSymbol "whatever")]
@@ -1042,10 +1042,20 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
     let rec run expr params env =
       match expr with
       | ScmConst sexpr -> ScmConst' sexpr
-      (* add support for ScmVarGet *)
-      (* add support for if *)
-      (* add support for sequence *)
-      (* add support for or *)
+      (* ScmVarGet *)
+      | ScmVarGet(Var v) ->
+         ScmVarGet' (tag_lexical_address_for_var v params env)
+      (* if *)
+      | ScmIf(test, dit, dif) ->
+         ScmIf' (run test params env,
+                 run dit params env,
+                 run dif params env)
+      (* sequence *)
+      | ScmSeq(exprs) ->
+         ScmSeq' (List.map (fun expr -> run expr params env) exprs)
+      (* or *)
+      | ScmOr(exprs) ->
+         ScmOr' (List.map (fun expr -> run expr params env) exprs)
       | ScmVarSet(Var v, expr) ->
          ScmVarSet' ((tag_lexical_address_for_var v params env),
                      run expr params env)
@@ -1054,7 +1064,9 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
          ScmVarDef' (Var' (v, Free), run expr params env)
       | ScmLambda (params', Simple, expr) ->
          ScmLambda' (params', Simple, run expr params' (params :: env))
-      (* add support for lambda-opt *)
+      (* lambda-opt *)
+      | ScmLambda (params', Opt opt, expr) ->
+         ScmLambda' (params' @ [opt], Opt opt, run expr (params' @ [opt]) (params :: env))
       | ScmApplic (proc, args) ->
          ScmApplic' (run proc params env,
                      List.map (fun arg -> run arg params env) args,
@@ -1067,16 +1079,31 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
     let rec run in_tail = function
       | (ScmConst' _) as orig -> orig
       | (ScmVarGet' _) as orig -> orig
-      (* add support for if *)
-      (* add support for sequences *)
-      (* add support for or *)
+      (* if *)
+      | ScmIf' (test, dit, dif) ->
+         ScmIf' (run false test,
+                 run in_tail dit,
+                 run in_tail dif)
+      (* sequences *)
+      | ScmSeq' (expr :: exprs) ->
+          ScmSeq' (runl in_tail expr exprs)
+         
+      (* or *)
+      | ScmOr' (expr :: exprs) ->
+         ScmOr' (runl in_tail expr exprs)
       | ScmVarSet' (var', expr') -> ScmVarSet' (var', run false expr')
       | ScmVarDef' (var', expr') -> ScmVarDef' (var', run false expr')
       | (ScmBox' _) as expr' -> expr'
       | (ScmBoxGet' _) as expr' -> expr'
       | ScmBoxSet' (var', expr') -> ScmBoxSet' (var', run false expr')
-      (* add support for lambda *)
-      (* add support for applic *)
+      (* lambda *)
+      | ScmLambda' (params, kind, expr) ->
+         ScmLambda' (params, kind, run true expr)
+      (* applic *)
+      | ScmApplic' (proc, args, app_kind) ->
+         ScmApplic' (run false proc,
+                     List.map (run false) args,
+                     (if in_tail then Tail_Call else Non_Tail_Call))
     and runl in_tail expr = function
       | [] -> [run in_tail expr]
       | expr' :: exprs -> (run false expr) :: (runl in_tail expr' exprs)
