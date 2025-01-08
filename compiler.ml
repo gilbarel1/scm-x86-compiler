@@ -1562,7 +1562,17 @@ let sprint_exprs' chan exprs =
        
          let collect_constants =
            let rec run = function
-             | _ -> raise (X_not_yet_implemented "final project")
+             | ScmConst' sexpr -> [sexpr]
+             | ScmVarDef' (Var'(str, lex), expr) -> (run expr)
+             | ScmVarSet' (Var'(str, lex), expr) -> (run expr)
+             | ScmVarGet' (Var'(str, Free)) -> [ScmString str]                                   
+             | ScmIf' (test, dit, dif) -> (run test) @ (run dit) @ (run dif)
+             | ScmBoxSet' (Var'(str, lex), expr) -> run expr
+             | ScmSeq' exprs -> runs exprs
+             | ScmOr' exprs -> runs exprs
+             | ScmLambda' (params, _ , body) -> List.map (fun param -> ScmSymbol param) params @ (run body)
+             | ScmApplic' (proc, args, _) -> (run proc) @ (runs args)
+             | _ -> []
            and runs exprs' =
              List.fold_left (fun consts expr' -> consts @ (run expr')) [] exprs'
            in
@@ -1610,20 +1620,24 @@ let sprint_exprs' chan exprs =
            | ScmChar ch ->
               ([RTTI "T_char"; Byte (int_of_char ch)], 2)
            | ScmString str ->
-              raise (X_not_yet_implemented "final project")
+              ([RTTI "T_string"; Quad (String.length str); ASCII str], 1 + word_size + (String.length str))
            | ScmSymbol sym ->
               let addr = search_constant_address (ScmString sym) table in
               ([RTTI "T_interned_symbol"; ConstPtr addr], 1 + word_size)
            | ScmNumber (ScmInteger n) ->
               ([RTTI "T_integer"; Quad n], 1 + word_size)
            | ScmNumber (ScmFraction (numerator, denominator)) ->
-              raise (X_not_yet_implemented "final project")
+              ([RTTI "T_frac"; Quad numerator; Quad denominator], 1 + 2 * word_size)
            | ScmNumber (ScmReal x) ->
               ([RTTI "T_real"; QuadFloat x], 1 + word_size)
            | ScmVector s ->
-              raise (X_not_yet_implemented "final project")
+              let length = List.length s in
+              let addrs = List.map (fun sexpr -> ConstPtr (search_constant_address sexpr table)) s in
+              ([RTTI "T_vector"; Quad length] @ addrs, 1 + word_size + length * word_size)
            | ScmPair (car, cdr) ->
-              raise (X_not_yet_implemented "final project");;
+              let car_addr = ConstPtr (search_constant_address car table) in
+              let cdr_addr = ConstPtr (search_constant_address cdr table) in
+              ([RTTI "T_pair"; car_addr; cdr_addr], 1 + 2 * word_size)
        
          let make_constants_table =
            let rec run table loc = function
@@ -1708,7 +1722,24 @@ let sprint_exprs' chan exprs =
        
          let collect_free_vars =
            let rec run = function
-             | _ -> raise (X_not_yet_implemented "final project")
+             | ScmConst' _ -> []
+             | ScmVarGet' (Var' (v, Free)) -> [v]
+             | ScmVarGet' _ -> []
+             | ScmBox' (Var' (v, Free)) -> [v]
+             | ScmBox' _ -> []
+             | ScmBoxSet' (Var' (v, Free), expr) -> [v] @ (run expr)
+             | ScmBoxSet' (_, expr) -> run expr
+             | ScmBoxGet' _ -> []
+             | ScmBoxGet' (Var' (v, Free)) -> [v]
+             | ScmIf' (test, dit, dif) -> (run test) @ (run dit) @ (run dif)
+             | ScmSeq' exprs -> runs exprs
+             | ScmOr' exprs -> runs exprs 
+             | ScmVarSet' (Var' (v, Free), expr) -> [v] @ (run expr)
+             | ScmVarSet' (_, expr) -> run expr
+             | ScmVarDef' (Var' (v, Free), expr) -> [v] @ (run expr)
+             | ScmVarDef' (_, expr) -> run expr
+             | ScmLambda' (_, _, body) -> run body
+             | ScmApplic' (proc, args, _) -> (run proc) @ (runs args)
            and runs exprs' =
              List.fold_left
                (fun vars expr' -> vars @ (run expr'))
