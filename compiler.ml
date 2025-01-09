@@ -1570,7 +1570,7 @@ let sprint_exprs' chan exprs =
              | ScmBoxSet' (Var'(str, lex), expr) -> run expr
              | ScmSeq' exprs -> runs exprs
              | ScmOr' exprs -> runs exprs
-             | ScmLambda' (params, _ , body) -> List.map (fun param -> ScmSymbol param) params @ (run body)
+             | ScmLambda' (params, _ , body) -> (run body)
              | ScmApplic' (proc, args, _) -> (run proc) @ (runs args)
              | _ -> []
            and runs exprs' =
