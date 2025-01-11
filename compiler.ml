@@ -822,23 +822,31 @@ module Tag_Parser : TAG_PARSER = struct
         execute_let_star ribs exprs
 
     (* letrec *)
-    | ScmPair (ScmSymbol "letrec", ScmPair (bindings, body)) -> 
+    | ScmPair (ScmSymbol "letrec", ScmPair (ribs, exprs)) ->
       let ribs = 
-        List.map (function
-          | ScmPair (ScmSymbol var, ScmPair (lambda_expr, ScmNil)) -> 
-              let value_expr = tag_parse lambda_expr in
-              (var, value_expr)
-          | _ -> raise (X_syntax "Malformed letrec expression!"))
-        (scheme_list_to_ocaml bindings |> fst)
+        match scheme_list_to_ocaml ribs with
+        | ribs_list, ScmNil -> ribs_list
+        | _ -> raise (X_syntax "Malformed letrec expression!") 
       in
-      let rib_bindings = List.map (fun (var, expr) -> ScmVarSet (Var var, expr)) ribs in
-      let updated_body = tag_parse (ScmPair (ScmSymbol "begin", body)) in
-      ScmApplic (
-        ScmLambda (List.map fst ribs, 
-        Simple, 
-        ScmSeq (rib_bindings @ [updated_body])),
-        [ScmConst (ScmSymbol "whatever")]
-      )
+      let new_ribs = 
+        List.map (function
+          | ScmPair (var, ScmPair (value, ScmNil)) -> 
+              ScmPair (var, ScmPair (ScmPair (ScmSymbol "quote", ScmPair (ScmSymbol "whatever", ScmNil)), ScmNil))
+          | _ -> raise (X_syntax "Malformed letrec expression!")
+        ) ribs 
+      in
+      let set_commands = 
+        List.map (function
+          | ScmPair (var, ScmPair (value, ScmNil)) -> 
+              ScmPair (ScmSymbol "set!", ScmPair (var, ScmPair (value, ScmNil)))
+          | _ -> raise (X_syntax "Malformed letrec expression!")
+        ) ribs
+      in
+      let updated_body = 
+        List.fold_right (fun set_expr acc -> ScmPair (set_expr, acc)) set_commands exprs 
+      in
+  
+      tag_parse (ScmPair (ScmSymbol "let", ScmPair (scheme_sexpr_list_of_sexpr_list new_ribs, updated_body)))
 
     | ScmPair (ScmSymbol "and", ScmNil) -> tag_parse (ScmBoolean true)
     | ScmPair (ScmSymbol "and", exprs) ->
@@ -1066,7 +1074,7 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
          ScmLambda' (params', Simple, run expr params' (params :: env))
       (* lambda-opt *)
       | ScmLambda (params', Opt opt, expr) ->
-         ScmLambda' (params' @ [opt], Opt opt, run expr (params' @ [opt]) (params :: env))
+         ScmLambda' (params', Opt opt, run expr (params' @ [opt]) (params :: env))
       | ScmApplic (proc, args) ->
          ScmApplic' (run proc params env,
                      List.map (fun arg -> run arg params env) args,
