@@ -1891,7 +1891,18 @@ let sprint_exprs' chan exprs =
                 String.concat "\n"
                   (List.map (run params env) exprs')
              | ScmOr' exprs' ->
-                raise (X_not_yet_implemented "final project")
+                let label_end = make_or_end () in
+                let exprs_code =
+                  List.map
+                    (fun expr ->
+                      let expr_code = run params env expr in
+                      expr_code ^
+                      "\tcmp rax, sob_boolean_false\n" ^
+                      Printf.sprintf "\tjne %s\n" label_end)
+                    exprs'
+                in
+                String.concat "" exprs_code ^
+                Printf.sprintf "%s:\n" label_end
              | ScmVarSet' (Var' (v, Free), expr') ->
                 raise (X_not_yet_implemented "final project")
              | ScmVarSet' (Var' (v, Param minor), ScmBox' _) ->
