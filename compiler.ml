@@ -1566,7 +1566,9 @@ let sprint_exprs' chan exprs =
              ("length", "L_code_ptr_length");
              ("make-list", "L_code_ptr_make_list");
              ("return", "L_code_ptr_return");
-           ];;  
+           ];;
+           
+           (*let global_bindings_table = [];;*)
        
          let collect_constants =
            let rec run = function
@@ -1891,15 +1893,40 @@ let sprint_exprs' chan exprs =
                 String.concat "\n"
                   (List.map (run params env) exprs')
              | ScmOr' exprs' ->
-                raise (X_not_yet_implemented "final project")
+                let label_end = make_or_end () in
+                let asm_code = 
+                  (match (list_and_last exprs') with 
+                  | Some (exprs', last) ->
+                     let exprs_code =
+                      String.concat ""
+                        (List.map (fun expr' -> let expr_code = run params env expr' in 
+                        expr_code ^ "\tcmp rax, sob_boolean_false\n" ^ "\tjne " ^ label_end ^ "\n") exprs') in
+                        let last_code = run params env last in
+                        exprs_code ^ last_code ^ (Printf.sprintf "%s:\n" label_end)
+                  | None -> run params env (ScmConst' (ScmBoolean false))) 
+                 in asm_code
              | ScmVarSet' (Var' (v, Free), expr') ->
-                raise (X_not_yet_implemented "final project")
+                let addrs = search_free_var_table v free_vars in
+                (run params env expr')
+                ^ (Printf.sprintf "\tmov qword [%s], rax\n" addrs)
+                ^ "\tmov rax, sob_void\n"
              | ScmVarSet' (Var' (v, Param minor), ScmBox' _) ->
-                raise (X_not_yet_implemented "final project")
+                "\tmov rdi, 8\n" ^ 
+                "\tcall malloc\n" ^
+                (Printf.sprintf "\tmov rbx, PARAM(%d)\n" minor) ^
+                "\tmov qword [rax], rbx\n" ^
+                (Printf.sprintf "\tmov PARAM(%d), rax\n" minor) ^
+                "\tmov rax, sob_void\n"
              | ScmVarSet' (Var' (v, Param minor), expr') ->
-                raise (X_not_yet_implemented "final project")
+                let expr_code = run params env expr' in
+                expr_code ^ (Printf.sprintf "\n\tmov qword [rbp+8*(4+%d)], rax\n" minor)
+                ^ "\tmov rax, sob_void\n"
              | ScmVarSet' (Var' (v, Bound (major, minor)), expr') ->
-                raise (X_not_yet_implemented "final project")
+                let expr_code = run params env expr' in
+                expr_code ^ (Printf.sprintf "\n\tmov rbx, qword [rbp+8*2]\n")
+                ^ (Printf.sprintf "\tmov rbx, qword [rbx+8*%d]\n" major)
+                ^ (Printf.sprintf "\tmov qword [rbx+8*%d], rax\n" minor)
+                ^ "\tmov rax, sob_void\n"
              | ScmVarDef' (Var' (v, Free), expr') ->
                 let label = search_free_var_table v free_vars in
                 (run params env expr')
@@ -1914,7 +1941,8 @@ let sprint_exprs' chan exprs =
                 (run params env (ScmVarGet' var'))
                 ^ "\tmov rax, qword [rax]\n"
              | ScmBoxSet' (var', expr') ->
-                raise (X_not_yet_implemented "final project")
+                let expr_code = run params env expr' in
+                expr_code ^ "\tpush rax\n" ^ (run params env (ScmVarGet' var')) ^ "\tpop qword [rax]\n" ^ "\tmov rax, sob_void\n"
              | ScmLambda' (params', Simple, body) ->
                 let label_loop_env = make_lambda_simple_loop_env ()
                 and label_loop_env_end = make_lambda_simple_loop_env_end ()
