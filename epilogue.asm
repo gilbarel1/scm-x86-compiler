@@ -906,15 +906,19 @@ L_code_ptr_bin_apply:
         push 1                    ; Push arg count = 1
         push rbx                  ; Push function
         call rbx                  ; Call function, result in rax
+        
+        ; Save function-returned value
+        mov rsi, rax
+        
         add rsp, 8*3             ; Clean up function call
         
         ; Create new pair with result
         mov rdi, (1 + 8 + 8)     ; Size of pair
         call malloc
         mov byte [rax], T_pair
-        pop r14                   ; Restore result list
-        mov SOB_PAIR_CAR(rax), rbx; Store function result
-        mov SOB_PAIR_CDR(rax), r14; Link to previous results
+        pop r14                   ; Restore old result list
+        mov SOB_PAIR_CAR(rax), rsi ; Store function call result
+        mov SOB_PAIR_CDR(rax), r14 ; Link to previous results
         mov r14, rax             ; Update result list
         
         pop rcx                   ; Restore list position

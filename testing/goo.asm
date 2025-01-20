@@ -465,8 +465,11 @@ L_constants:
 	dq 6
 	db 0x72, 0x65, 0x74, 0x75, 0x72, 0x6E
 	; L_constants + 1501:
-	db T_integer	; 5
-	dq 5
+	db T_integer	; 1
+	dq 1
+	; L_constants + 1510:
+	db T_integer	; 2
+	dq 2
 
 
 extern printf, fprintf, stdout, stderr, fwrite, exit, putchar, getchar
@@ -479,6 +482,8 @@ main:
         push Lend
         enter 0, 0
 
+	; preparing a non-tail-call
+	push 0	; arg count
 	mov rdi, (1 + 8 + 8)	; sob closure
 	call malloc
 	push rax
@@ -490,8 +495,57 @@ main:
 	mov rdi, ENV
 	mov rsi, 0
 	mov rdx, 1
-.L_lambda_simple_env_loop_0003:	; ext_env[i + 1] <-- env[i]
+.L_lambda_simple_env_loop_0002:	; ext_env[i + 1] <-- env[i]
 	cmp rsi, 0
+	je .L_lambda_simple_env_end_0002
+	mov rcx, qword [rdi + 8 * rsi]
+	mov qword [rax + 8 * rdx], rcx
+	inc rsi
+	inc rdx
+	jmp .L_lambda_simple_env_loop_0002
+.L_lambda_simple_env_end_0002:
+	pop rbx
+	mov rsi, 0
+.L_lambda_simple_params_loop_0002:	; copy params
+	cmp rsi, 0
+	je .L_lambda_simple_params_end_0002
+	mov rdx, qword [rbp + 8 * rsi + 8 * 4]
+	mov qword [rbx + 8 * rsi], rdx
+	inc rsi
+	jmp .L_lambda_simple_params_loop_0002
+.L_lambda_simple_params_end_0002:
+	mov qword [rax], rbx	; ext_env[0] <-- new_rib 
+	mov rbx, rax
+	pop rax
+	mov byte [rax], T_closure
+	mov SOB_CLOSURE_ENV(rax), rbx
+	mov SOB_CLOSURE_CODE(rax), .L_lambda_simple_code_0002
+	jmp .L_lambda_simple_end_0002
+.L_lambda_simple_code_0002:	; lambda-simple body
+	cmp qword [rsp + 8 * 2], 0
+	je .L_lambda_simple_arity_check_ok_0002
+	push qword [rsp + 8 * 2]
+	push 0
+	jmp L_error_incorrect_arity_simple
+.L_lambda_simple_arity_check_ok_0002:
+	enter 0, 0
+	mov rax, L_constants + 1501
+
+	; preparing a tail-call
+	push 0	; arg count
+	mov rdi, (1 + 8 + 8)	; sob closure
+	call malloc
+	push rax
+	mov rdi, 8 * 0	; new rib
+	call malloc
+	push rax
+	mov rdi, 8 * 2	; extended env
+	call malloc
+	mov rdi, ENV
+	mov rsi, 0
+	mov rdx, 1
+.L_lambda_simple_env_loop_0003:	; ext_env[i + 1] <-- env[i]
+	cmp rsi, 1
 	je .L_lambda_simple_env_end_0003
 	mov rcx, qword [rdi + 8 * rsi]
 	mov qword [rax + 8 * rdx], rcx
@@ -517,20 +571,46 @@ main:
 	mov SOB_CLOSURE_CODE(rax), .L_lambda_simple_code_0003
 	jmp .L_lambda_simple_end_0003
 .L_lambda_simple_code_0003:	; lambda-simple body
-	cmp qword [rsp + 8 * 2], 1
+	cmp qword [rsp + 8 * 2], 0
 	je .L_lambda_simple_arity_check_ok_0003
 	push qword [rsp + 8 * 2]
-	push 1
+	push 0
 	jmp L_error_incorrect_arity_simple
 .L_lambda_simple_arity_check_ok_0003:
 	enter 0, 0
-	mov rax, L_constants + 1501
-
-	mov qword [rbp+8*(4+0)], rax
-	mov rax, sob_void
+	mov rax, L_constants + 1510
 	leave
-	ret AND_KILL_FRAME(1)
+	ret AND_KILL_FRAME(0)
 .L_lambda_simple_end_0003:	; new closure is in rax
+	cmp byte [rax], T_closure
+	jne L_error_non_closure
+	push SOB_CLOSURE_ENV(rax)
+	push qword [rbp + 8 * 1]
+	push qword [rbp]
+	mov rsi, qword [rbp + 8 * 3]
+	lea rsi, [rbp + 8*rsi + 8*3]
+	mov rcx, 4+ 0
+	lea rdi, [rbp - 8]
+.L_tc_recycle_frame_loop_0001:
+	cmp rcx, 0
+	je .L_tc_recycle_frame_done_0001
+	mov r10, qword [rsi]
+	mov qword [rsi], r10
+	sub rsi, 8
+	sub rdi, 8
+	dec rcx
+	jmp .L_tc_recycle_frame_loop_0001
+.L_tc_recycle_frame_done_0001:
+	lea rsp, [rsi + 8]
+	pop rbp
+	jmp SOB_CLOSURE_CODE(rax)
+	leave
+	ret AND_KILL_FRAME(0)
+.L_lambda_simple_end_0002:	; new closure is in rax
+	cmp byte [rax], T_closure
+	jne L_error_non_closure
+	push SOB_CLOSURE_ENV(rax)
+	call SOB_CLOSURE_CODE(rax)
 Lend:
 	mov rdi, rax
 	call print_sexpr_if_not_void
@@ -1442,15 +1522,19 @@ L_code_ptr_bin_apply:
         push 1                    ; Push arg count = 1
         push rbx                  ; Push function
         call rbx                  ; Call function, result in rax
+        
+        ; Save function-returned value
+        mov rsi, rax
+        
         add rsp, 8*3             ; Clean up function call
         
         ; Create new pair with result
         mov rdi, (1 + 8 + 8)     ; Size of pair
         call malloc
         mov byte [rax], T_pair
-        pop r14                   ; Restore result list
-        mov SOB_PAIR_CAR(rax), rbx; Store function result
-        mov SOB_PAIR_CDR(rax), r14; Link to previous results
+        pop r14                   ; Restore old result list
+        mov SOB_PAIR_CAR(rax), rsi ; Store function call result
+        mov SOB_PAIR_CDR(rax), r14 ; Link to previous results
         mov r14, rax             ; Update result list
         
         pop rcx                   ; Restore list position
