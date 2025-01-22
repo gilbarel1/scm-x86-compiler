@@ -2198,21 +2198,21 @@ let sprint_exprs' chan exprs =
                 ^ "\tpush qword [rbp + 8 * 1]\n" (* old ret addr *)
                 ^ "\tpush qword [rbp]\n"
                 (* Fixing stack *)
-                ^ "\tmov rsi, qword [rbp + 8 * 3]\n"
-                ^ "\tlea rsi, [rbp + 8*rsi + 8*3]\n"
-                ^ (Printf.sprintf "\tmov rcx, 4+ %d\n" (List.length args))
-                ^ "\tlea rdi, [rbp - 8]\n"
+                ^ "\tmov rdi, qword [rbp + 8 * 3]\n"
+                ^ "\tlea rdi, [rbp + 8 * rdi + 8 * 3]\n"
+                ^ (Printf.sprintf "\tmov rcx, 4 + %d\n" (List.length args))
+                ^ "\tlea rsi, [rbp - 8]\n"
                 ^ (Printf.sprintf "%s:\n" tc_applic_recycle_frame_loop_label) 
                 ^ "\tcmp rcx, 0\n"
                 ^ "\tje " ^ tc_applic_recycle_frame_done_label ^ "\n"
                 ^ "\tmov r10, qword [rsi]\n"
-                ^ "\tmov qword [rsi], r10\n"
-                ^ "\tsub rsi, 8\n"
+                ^ "\tmov qword [rdi], r10\n"
                 ^ "\tsub rdi, 8\n"
+                ^ "\tsub rsi, 8\n"
                 ^ "\tdec rcx\n"
                 ^ "\tjmp " ^ tc_applic_recycle_frame_loop_label ^ "\n"
                 ^ (Printf.sprintf "%s:\n" tc_applic_recycle_frame_done_label)
-                ^ "\tlea rsp, [rsi + 8]\n"
+                ^ "\tlea rsp, [rdi + 8]\n"
                 ^ "\tpop rbp\n"
                 ^ "\tjmp SOB_CLOSURE_CODE(rax)\n"
            and runs params env exprs' =

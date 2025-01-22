@@ -90,6 +90,7 @@ fmt_error_improper_list:
 	db `!!! The argument is not a proper list!\n\0`
 
 section .bss
+
 memory:
 	resb gbytes(1)
 
@@ -883,53 +884,58 @@ L_code_ptr_lognot:
         ret AND_KILL_FRAME(1)
 
 L_code_ptr_bin_apply:
-        enter 0, 0
-        cmp COUNT, 2              ; Ensure exactly 2 arguments
-        jne L_error_arg_count_2
+        ;1. Save the old rsp
+        mov  r8, rbp
+        push qword [rbp]
+        mov rbp, rsp    
         
-        mov rbx, PARAM(0)         ; Get function
-        mov rcx, PARAM(1)         ; Get list
-        mov r14, sob_nil          ; Initialize result list = ()
+        ;2. Calc the number of the args - argv[1].length
+        mov rsi, PARAM(1); rsi - point to the first var in the list
+	mov rdi, rsi
+	mov rcx, 0
+
+.L_bin_apply_calc_number_of_args:
+	cmp rdi, sob_nil
+	je .L_bin_apply_end_calc_loop
+	assert_pair(rdi)
+	mov rdi, SOB_PAIR_CDR(rdi)
+	inc rcx
+	jmp .L_bin_apply_calc_number_of_args
+
+.L_bin_apply_end_calc_loop:
+        ;3. Update rsp -> rsp - 8 * argv[1].length
+        lea r11, [8*(rcx - 3)]
+        sub rsp, r11
+
+        ;4. Save RET_ADDR
+        mov r10, RET_ADDR
+        mov qword [rsp], r10
+
+        ;5. Save SOB_CLOSURE_ENV(proc)
+        mov r10, PARAM(0)
+        assert_closure(r10)
+        mov rax, SOB_CLOSURE_ENV(r10)
+        mov qword [rsp + 8 * 1], rax
+
+        ;6. Save new argc = argv[1].length
+        mov qword [rsp + 8 * 2], rcx
         
-.L_process_list:
-        cmp byte [rcx], T_nil     ; Check if end of list
-        je .L_done
+        ;5. Push all args in argv[1] to the stack
+        lea r9, [rsp + 8 * 3]
+	mov rdi, rsi; rsi - point to the first var in the list
+
+.L_bin_apply_recycle_frame_loop:
+	cmp rdi, sob_nil
+	je .L_bin_apply_recycle_frame_done
+        mov rax, SOB_PAIR_CAR(rdi)
+        mov qword [r9], rax
+        add r9, 8
+        mov rdi, SOB_PAIR_CDR(rdi)
+	jmp .L_bin_apply_recycle_frame_loop
         
-        ; Prepare to call function with single argument
-        push rbx                  ; Save function
-        push rcx                  ; Save current list position
-        push r14                  ; Save result list
-        
-        ; Setup function call with one argument
-        mov rdi, SOB_PAIR_CAR(rcx); Get current element
-        push rdi                  ; Push argument
-        push 1                    ; Push arg count = 1
-        push rbx                  ; Push function
-        call rbx                  ; Call function, result in rax
-        
-        ; Save function-returned value
-        mov rsi, rax
-        
-        add rsp, 8*3             ; Clean up function call
-        
-        ; Create new pair with result
-        mov rdi, (1 + 8 + 8)     ; Size of pair
-        call malloc
-        mov byte [rax], T_pair
-        pop r14                   ; Restore old result list
-        mov SOB_PAIR_CAR(rax), rsi ; Store function call result
-        mov SOB_PAIR_CDR(rax), r14 ; Link to previous results
-        mov r14, rax             ; Update result list
-        
-        pop rcx                   ; Restore list position
-        pop rbx                   ; Restore function
-        mov rcx, SOB_PAIR_CDR(rcx); Move to next element
-        jmp .L_process_list
-        
-.L_done:
-        mov rax, r14              ; Return result list
-        leave
-        ret AND_KILL_FRAME(2)
+.L_bin_apply_recycle_frame_done:
+        mov  rbp, r8
+        jmp SOB_CLOSURE_CODE(r10)
         
 
 L_code_ptr_is_null:
