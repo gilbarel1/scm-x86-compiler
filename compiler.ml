@@ -2015,162 +2015,145 @@ let sprint_exprs' chan exprs =
                 and label_loop_params = make_lambda_opt_loop_params ()
                 and label_loop_params_end = make_lambda_opt_loop_params_end ()
                 and label_code = make_lambda_opt_code ()
-                and label_end = make_lambda_opt_end ()
                 and label_arity_exact = make_lambda_opt_arity_exact ()
                 and label_arity_more = make_lambda_opt_arity_more ()
                 and label_stack_ok = make_lambda_opt_stack_ok ()
-                and label_opt_loop_exact = make_lambda_opt_loop ()
-                and label_opt_loop_exit_exact = make_lambda_opt_loop_exit ()
-                and label_opt_loop_more = make_lambda_opt_loop ()
-                and label_opt_loop_exit_more = make_lambda_opt_loop_exit ()
-                and label_opt_loop_more_update_stack = make_lambda_opt_loop ()
-                and label_opt_loop_exit_more_update_stack = make_lambda_opt_loop_exit () in 
-                "\tmov rdi, (1 + 8 + 8)\t; sob closure\n"
+                and label_end = make_lambda_opt_end ()
+                and label_loop = make_lambda_opt_loop ()
+                and label_loop_exit = make_lambda_opt_loop_exit ()
+                and label_opt_build_more = make_lambda_opt_loop ()
+                and label_opt_build_exit_more = make_lambda_opt_loop_exit ()
+                and label_opt_update_stack = make_lambda_opt_loop ()
+                and label_opt_update_stack_exit = make_lambda_opt_loop_exit ()
+                and label_error_incorrect_arity_opt = "L_error_incorrect_arity_opt" in 
+                "\tmov rdi, (1 + 8 + 8)\n"
                 ^ "\tcall malloc\n"
                 ^ "\tpush rax\n"
-                ^ (Printf.sprintf "\tmov rdi, 8 * %d\t; new rib\n" params)
+                ^ "\tmov rdi, 8 * " ^ (string_of_int params) ^ "\n"
                 ^ "\tcall malloc\n"
                 ^ "\tpush rax\n"
-                (*extended start*)
-                ^ (Printf.sprintf "\tmov rdi, 8 * %d\t; extended env\n" (env + 1))
+                ^ "\tmov rdi, 8 * " ^ (string_of_int (env + 1)) ^ "\n"
                 ^ "\tcall malloc\n"
-                ^ "\tmov rdi, ENV\n"
-                ^ "\tmov rsi, 0\n"
+                ^ "\tmov rdi, qword [rbp + 8 * 2]\n"
                 ^ "\tmov rdx, 1\n"
-                ^ (Printf.sprintf "%s:\t; ext_env[i + 1] <-- env[i]\n"
-                    label_loop_env)
-                ^ (Printf.sprintf "\tcmp rsi, %d\n" (env))
-                ^ (Printf.sprintf "\tje %s\n" label_loop_env_end)
+                ^ "\tmov rsi, 0\n"
+                ^ label_loop_env ^ ":\n"
+                ^ "\tcmp rsi, " ^ (string_of_int env) ^ "\n"
+                ^ "\tje " ^ label_loop_env_end ^ "\n"
                 ^ "\tmov rcx, qword [rdi + 8 * rsi]\n"
                 ^ "\tmov qword [rax + 8 * rdx], rcx\n"
                 ^ "\tinc rsi\n"
                 ^ "\tinc rdx\n"
-                ^ (Printf.sprintf "\tjmp %s\n" label_loop_env)
-                ^ (Printf.sprintf "%s:\n" label_loop_env_end)
+                ^ "\tjmp " ^ label_loop_env ^ "\n"
+                ^ label_loop_env_end ^ ":\n"
                 ^ "\tpop rbx\n"
                 ^ "\tmov rsi, 0\n"
-                ^ (Printf.sprintf "%s:\t; copy params\n" label_loop_params)
-                ^ (Printf.sprintf "\tcmp rsi, %d\n" params)
-                ^ (Printf.sprintf "\tje %s\n" label_loop_params_end)
+                ^ label_loop_params ^ ":\t; copying parameters\n"
+                ^ "\tcmp rsi, " ^ (string_of_int params) ^ "\n"
+                ^ "\tje " ^ label_loop_params_end ^ "\n"
                 ^ "\tmov rdx, qword [rbp + 8 * rsi + 8 * 4]\n"
                 ^ "\tmov qword [rbx + 8 * rsi], rdx\n"
                 ^ "\tinc rsi\n"
-                ^ (Printf.sprintf "\tjmp %s\n" label_loop_params)
-                ^ (Printf.sprintf "%s:\n" label_loop_params_end)
-                ^ "\tmov qword [rax], rbx\t; ext_env[0] <-- new_rib \n"
+                ^ "\tjmp " ^ label_loop_params ^ "\n"
+                ^ label_loop_params_end ^ ":\n"
+                ^ "\tmov qword [rax], rbx\n"
                 ^ "\tmov rbx, rax\n"
                 ^ "\tpop rax\n"
-                (*extended env*)
                 ^ "\tmov byte [rax], T_closure\n"
                 ^ "\tmov SOB_CLOSURE_ENV(rax), rbx\n"
-                ^ (Printf.sprintf "\tmov SOB_CLOSURE_CODE(rax), %s\n" label_code)
-                ^ (Printf.sprintf "\tjmp %s\n" label_end)
-                (*closuer body  start*)
-                ^ (Printf.sprintf "%s:\t; lambda-opt body\n" label_code)
-                (*update stack - start*)
-                (* r8 <- argc *)
-                ^ "\tmov r8, qword [rsp + 8*2]\n" 
-                (* r9 <-- = parms.length = new argc = argc' *)
-                ^ (Printf.sprintf "\tmov r9, %d\n" (List.length params' + 1))
-                (* r13 <-- argc + 2*)
-                ^ "\tlea r13, [r8 + 2] \n" 
-                (*argc ? param length*)
-                ^ (Printf.sprintf "\tcmp qword [rsp + 8 * 2], %d\n"
-                    (List.length params'))
-                ^ (Printf.sprintf "\tje %s\n" label_arity_exact)
-                ^ (Printf.sprintf "\tja %s\n" label_arity_more)
-                (*argc < param length*)
+                ^ "\tmov SOB_CLOSURE_CODE(rax), " ^ label_code ^ "\n"
+                ^ "\tjmp " ^ label_end ^ "\n"
+                ^ label_code ^ ":\t; body\n"
+                ^ "\tmov r8, qword [rsp + 8 * 2]\n"
+                ^ "\tmov r9, " ^ (string_of_int (List.length params' + 1)) ^ "\n"
+                ^ "\tlea r13, [r8 + 2] \n"
+                ^ "\tcmp qword [rsp + 8 * 2], " ^ (string_of_int (List.length params')) ^ "\n"
+                ^ "\tje " ^ label_arity_exact ^ "\n"
+                ^ "\tja " ^ label_arity_more ^ "\n"
                 ^ "\tpush qword [rsp + 8 * 2]\n"
-                ^ (Printf.sprintf "\tpush %d\n" (List.length params'))
-                ^ "\tjmp L_error_incorrect_arity_opt\n"
-                (*argc > param length*)
-                ^ (Printf.sprintf "%s: ;More case\n" label_arity_more)
+                ^ "\tpush " ^ (string_of_int (List.length params')) ^ "\n"
+                ^ "\tjmp " ^ label_error_incorrect_arity_opt ^ "\n"
+                ^ label_arity_more ^ ":\n"
                 ^ "\tmov r15, r8\n"
-                ^ "\tsub r15, r9\n" (* r15 <-- argc - new argc*)
-                ^ "\tlea rcx, [r15 + 1]\n" (* rcx <-- argc - new argc + 1*)
-                (* pack the more args to list *)
-                ^ (Printf.sprintf "\tlea r12, [rsp + %d*r8 + %d*2]\n" word_size word_size)
+                ^ "\tsub r15, r9\n"
+                ^ "\tlea rcx, [r15 + 1]\n"
+                ^ "\tlea r12, [rsp + 8 * r8 + 8 * 2]\n"
                 ^ "\tmov r11, sob_nil\n"
-                ^ (Printf.sprintf "%s:\n" label_opt_loop_more)
+                ^ label_opt_build_more ^ ":\n"
                 ^ "\tcmp rcx, 0\n"
-                ^ (Printf.sprintf "\tje %s\n" label_opt_loop_exit_more)
-                ^ (Printf.sprintf "\tmov rdi, %d\n" (1 + word_size + word_size))
+                ^ "\tje " ^ label_opt_build_exit_more ^ "\n"
+                ^ "\tmov rdi, (1 + 8 + 8)\n"
                 ^ "\tcall malloc\n"
                 ^ "\tmov byte [rax], T_pair\n"
                 ^ "\tmov rbx, qword [r12]\n"
                 ^ "\tmov qword [rax + 1], rbx\n"
-                ^ (Printf.sprintf "\tmov qword [rax + 1 + %d], r11\n" word_size)
+                ^ "\tmov qword [rax + 1 + 8], r11\n"
                 ^ "\tmov r11, rax\n"
-                ^ (Printf.sprintf "\tsub r12, %d\n" word_size)
+                ^ "\tsub r12, 8\n"
                 ^ "\tdec rcx\n"
-                ^ (Printf.sprintf "\tjmp %s\n" label_opt_loop_more)
-                ^ (Printf.sprintf "%s:\n" label_opt_loop_exit_more)
-                (*Copy the other args to the stack and order the stack frame*)
-                ^ (Printf.sprintf "\tlea r10, [rsp + %d* %d + %d*3]\n" word_size (List.length params') word_size)
+                ^ "\tjmp " ^ label_opt_build_more ^ "\n"
+                ^ label_opt_build_exit_more ^ ":\n"
+                ^ "\tlea r10, [rsp + 8 * " ^ (string_of_int (List.length params')) ^ " + 8 * 3]\n"
                 ^ "\tmov qword [r10], r11\n"
                 ^ "\tlea r13, [8 * r13]\n"
                 ^ "\tadd r13, rsp\n"
-                ^ (Printf.sprintf "\tmov r14, %d\n" (List.length params' + 3))
-                ^ (Printf.sprintf "\tmov rcx, 4 + %d\n" (List.length params'))
-                ^ (Printf.sprintf "%s:\n" label_opt_loop_more_update_stack)
+                ^ "\tmov r14, " ^ (string_of_int (List.length params' + 3)) ^ "\n"
+                ^ "\tmov rcx, 4 + " ^ (string_of_int (List.length params')) ^ "\n"
+                ^ label_opt_update_stack ^ ":\n"
                 ^ "\tcmp rcx, 0\n"
-                ^ (Printf.sprintf "\tje %s\n" label_opt_loop_exit_more_update_stack)
+                ^ "\tje " ^ label_opt_update_stack_exit ^ "\n"
                 ^ "\tmov r11, qword [r10]\n"
                 ^ "\tmov qword [r13], r11\n"
-                ^ (Printf.sprintf "\tsub r10, %d\n" word_size)
-                ^ (Printf.sprintf "\tsub r13, %d\n" word_size)
+                ^ "\tsub r10, 8\n"
+                ^ "\tsub r13, 8\n"
                 ^ "\tdec rcx\n"
-                ^ (Printf.sprintf "\tjmp %s\n" label_opt_loop_more_update_stack)
-                ^ (Printf.sprintf "%s:\n" label_opt_loop_exit_more_update_stack)
-                ^ (Printf.sprintf "\tadd r13, %d\n" word_size)
+                ^ "\tjmp " ^ label_opt_update_stack ^ "\n"
+                ^ label_opt_update_stack_exit ^ ":\n"
+                ^ "\tadd r13, 8\n"
                 ^ "\tmov rsp, r13\n"
-                ^ (Printf.sprintf "jmp %s\n" label_stack_ok)
-                
-                (*argc == param length*)
-                ^ (Printf.sprintf "%s: ;Exact case\n" label_arity_exact)
-                ^ (Printf.sprintf "\tmov r8, qword [rsp -%d * 0]\n" word_size)
-                ^ (Printf.sprintf "\tmov qword [rsp -%d * 1], r8\n" word_size)
-                ^ (Printf.sprintf "\tmov r8, qword [rsp +%d * 1]\n" word_size)
-                ^ (Printf.sprintf "\tmov qword [rsp +%d * 0], r8\n" word_size)
-                ^ (Printf.sprintf "\tmov r8, qword [rsp +%d * 2]\n" word_size)
+                ^ "jmp " ^ label_stack_ok ^ "\n"
+                ^ label_arity_exact ^ ":\n"
+                ^ "\tmov r8, qword [rsp - 8 * 0]\n"
+                ^ "\tmov qword [rsp - 8 * 1], r8\n"
+                ^ "\tmov r8, qword [rsp + 8 * 1]\n"
+                ^ "\tmov qword [rsp + 8 * 0], r8\n"
+                ^ "\tmov r8, qword [rsp + 8 * 2]\n"
                 ^ "\tmov rcx, r8\n"
                 ^ "\tinc r8\n"
-                ^ (Printf.sprintf "\tmov qword [rsp +%d * 1], r8\n" word_size)
+                ^ "\tmov qword [rsp + 8 * 1], r8\n"
                 ^ "\tmov rdx, rsp\n"
                 ^ "\tadd rdx, 24\n"
-                ^ (Printf.sprintf "%s:\n" label_opt_loop_exact)
+                ^ label_loop ^ ":\n"
                 ^ "\tcmp rcx, 0\n"
-                ^ (Printf.sprintf "\tje %s\n" label_opt_loop_exit_exact)
+                ^ "\tje " ^ label_loop_exit ^ "\n"
                 ^ "\tmov r8, [rdx]\n"
-                ^ (Printf.sprintf "\tmov qword [rdx -%d], r8\n" word_size)
+                ^ "\tmov qword [rdx - 8], r8\n"
                 ^ "\tadd rdx, 8\n"
                 ^ "\tdec rcx\n"
-                ^ (Printf.sprintf "\tjmp %s\n" label_opt_loop_exact)
-                ^ (Printf.sprintf "%s:\n" label_opt_loop_exit_exact)
-                ^ (Printf.sprintf "\tmov qword [rdx -%d], sob_nil\n" word_size)
-                ^ (Printf.sprintf "\tsub rsp, %d\n" word_size)
-                (*Update stack - end*)
-                ^ (Printf.sprintf "%s:\n" label_stack_ok)
-                (*Update argc:*)
-                ^ (Printf.sprintf "\tmov qword [rsp + 8*2], %d\n" (List.length params' + 1))
+                ^ "\tjmp " ^ label_loop ^ "\n"
+                ^ label_loop_exit ^ ":\n"
+                ^ "\tmov qword [rdx - 8], sob_nil\n"
+                ^ "\tsub rsp, 8\n"
+                ^ label_stack_ok ^ ":\n"
+                ^ "\tmov qword [rsp + 8 * 2], " ^ (string_of_int (List.length params' + 1)) ^ "\n"
                 ^ "\tenter 0, 0\n"
                 ^ (run (List.length params' + 1) (env + 1) body)
                 ^ "\tleave\n"
-                ^ (Printf.sprintf "\tret 8 * (2 + %d)\n" (List.length params' + 1))
-                ^ (Printf.sprintf "%s:\t; new closure is in rax\n" label_end) 
-             | ScmApplic' (proc, args, Non_Tail_Call) -> 
+                ^ "\tret 8 * (2 + " ^ (string_of_int (List.length params' + 1)) ^ ")\n"
+                ^ label_end ^ ":\n"
+              | ScmApplic' (proc, args, Non_Tail_Call) -> 
                 let args_code =
                   String.concat ""
-                    (List.map
-                       (fun arg ->
-                         let arg_code = run params env arg in
-                         arg_code
-                         ^ "\tpush rax\n")
-                       (List.rev args)) in
+                  (List.map
+                    (fun arg ->
+                    let arg_code = run params env arg in
+                    arg_code
+                    ^ "\tpush rax\n")
+                    (List.rev args)) in
                 let proc_code = run params env proc in
                 "\t; preparing a non-tail-call\n"
                 ^ args_code
-                ^ (Printf.sprintf "\tpush %d\t; arg count\n" (List.length args))
+                ^ (Printf.sprintf "\tpush %d\n" (List.length args))
                 ^ proc_code
                 ^ "\tcmp byte [rax], T_closure\n"
                 ^ "\tjne L_error_non_closure\n"
@@ -2188,21 +2171,21 @@ let sprint_exprs' chan exprs =
                          ^ "\tpush rax\n")
                        (List.rev args)) in
                 let proc_code = run params env proc in
-                "\t; preparing a tail-call\n"
+                "\t;debug: preparing a tail-call\n"
                 ^ args_code
-                ^ (Printf.sprintf "\tpush %d\t; arg count\n" (List.length args))
+                ^ "\tpush " ^ (string_of_int (List.length args)) ^"\t; arg count\n"
                 ^ proc_code
                 ^ "\tcmp byte [rax], T_closure\n"
                 ^ "\tjne L_error_non_closure\n"
                 ^ "\tpush SOB_CLOSURE_ENV(rax)\n"
-                ^ "\tpush qword [rbp + 8 * 1]\n" (* old ret addr *)
+                ^ "\tpush qword [rbp + 8 * 1]\n"
                 ^ "\tpush qword [rbp]\n"
-                (* Fixing stack *)
+                (* Fixing stack - Start *)
                 ^ "\tmov rdi, qword [rbp + 8 * 3]\n"
                 ^ "\tlea rdi, [rbp + 8 * rdi + 8 * 3]\n"
-                ^ (Printf.sprintf "\tmov rcx, 4 + %d\n" (List.length args))
+                ^ "\tmov rcx, 4 + " ^ (string_of_int (List.length args)) ^ "\n"
                 ^ "\tlea rsi, [rbp - 8]\n"
-                ^ (Printf.sprintf "%s:\n" tc_applic_recycle_frame_loop_label) 
+                ^ tc_applic_recycle_frame_loop_label ^ ":\n" 
                 ^ "\tcmp rcx, 0\n"
                 ^ "\tje " ^ tc_applic_recycle_frame_done_label ^ "\n"
                 ^ "\tmov r10, qword [rsi]\n"
@@ -2211,8 +2194,9 @@ let sprint_exprs' chan exprs =
                 ^ "\tsub rsi, 8\n"
                 ^ "\tdec rcx\n"
                 ^ "\tjmp " ^ tc_applic_recycle_frame_loop_label ^ "\n"
-                ^ (Printf.sprintf "%s:\n" tc_applic_recycle_frame_done_label)
+                ^ tc_applic_recycle_frame_done_label ^ ":\n"
                 ^ "\tlea rsp, [rdi + 8]\n"
+                (* Fixing stack - End *)
                 ^ "\tpop rbp\n"
                 ^ "\tjmp SOB_CLOSURE_CODE(rax)\n"
            and runs params env exprs' =

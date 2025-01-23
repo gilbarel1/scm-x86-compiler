@@ -884,12 +884,12 @@ L_code_ptr_lognot:
         ret AND_KILL_FRAME(1)
 
 L_code_ptr_bin_apply:
-        ;1. Save the old rsp
+        ; Save the old stack pointer
         mov  r8, rbp
         push qword [rbp]
         mov rbp, rsp    
         
-        ;2. Calc the number of the args - argv[1].length
+        ; Calculate the number of the args - argv[1].length
         mov rsi, PARAM(1); rsi - point to the first var in the list
 	mov rdi, rsi
 	mov rcx, 0
@@ -897,40 +897,42 @@ L_code_ptr_bin_apply:
 .L_bin_apply_calc_number_of_args:
 	cmp rdi, sob_nil
 	je .L_bin_apply_end_calc_loop
-	assert_pair(rdi)
-	mov rdi, SOB_PAIR_CDR(rdi)
+	cmp byte [rdi], T_pair
+        jne L_error_incorrect_type
+	mov rdi, qword [rdi + 1 + 8] ; rdi = cdr list
 	inc rcx
 	jmp .L_bin_apply_calc_number_of_args
 
 .L_bin_apply_end_calc_loop:
-        ;3. Update rsp -> rsp - 8 * argv[1].length
+        ; Update rsp -> rsp - 8 * argv[1].length
         lea r11, [8*(rcx - 3)]
         sub rsp, r11
 
-        ;4. Save RET_ADDR
-        mov r10, RET_ADDR
+        ; Save return address of the closure
+        mov r10, qword [rbp + 8 * 1] ; r10 points to return address
         mov qword [rsp], r10
 
-        ;5. Save SOB_CLOSURE_ENV(proc)
+        ; Save environment of the closure
         mov r10, PARAM(0)
-        assert_closure(r10)
-        mov rax, SOB_CLOSURE_ENV(r10)
+        cmp byte [r10], T_closure
+        jne L_error_incorrect_type
+        mov rax, qword [r10 + 1] ; rax -> env
         mov qword [rsp + 8 * 1], rax
 
-        ;6. Save new argc = argv[1].length
+        ; Save new argc
         mov qword [rsp + 8 * 2], rcx
-        
-        ;5. Push all args in argv[1] to the stack
+
+        ; Push all args in argv[1] to the stack
         lea r9, [rsp + 8 * 3]
 	mov rdi, rsi; rsi - point to the first var in the list
 
 .L_bin_apply_recycle_frame_loop:
 	cmp rdi, sob_nil
 	je .L_bin_apply_recycle_frame_done
-        mov rax, SOB_PAIR_CAR(rdi)
+        mov rax, qword [rdi + 1] ; rax -> car list
         mov qword [r9], rax
         add r9, 8
-        mov rdi, SOB_PAIR_CDR(rdi)
+        mov rdi, qword [rdi + 1 + 8] ; rax -> cdr list
 	jmp .L_bin_apply_recycle_frame_loop
         
 .L_bin_apply_recycle_frame_done:
@@ -2320,3 +2322,5 @@ fmt_scheme_error_part_2:
         db `    with the following message:\n\n\0`
 fmt_scheme_error_part_3:
         db `\n\nGoodbye!\n\n\0`
+
+section .note.GNU-stack noalloc noexec nowrite progbits
