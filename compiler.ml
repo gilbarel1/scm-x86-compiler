@@ -1314,7 +1314,7 @@ module Semantic_Analysis : SEMANTIC_ANALYSIS = struct
 
   let semantics expr =
     auto_box
-      (annotate_tail_calls
+      ((annotate_tail_calls)
          (annotate_lexical_address expr));;
 
 end;; (* end of module Semantic_Analysis *)
@@ -1566,21 +1566,27 @@ let sprint_exprs' chan exprs =
              ("length", "L_code_ptr_length");
              ("make-list", "L_code_ptr_make_list");
              ("return", "L_code_ptr_return");
-           ];;  
+           ];;
+           
        
          let collect_constants =
            let rec run = function
              | ScmConst' sexpr -> [sexpr]
-             | ScmVarDef' (Var'(str, lex), expr) -> (run expr)
-             | ScmVarSet' (Var'(str, lex), expr) -> (run expr)
-             | ScmVarGet' (Var'(str, Free)) -> [ScmString str]                                   
+             | ScmVarGet' (Var' (str, Free)) -> [ScmString str]
+             | ScmVarGet' _ -> [] 
+             | ScmVarDef' (Var' (str, Free), expr) -> [ScmString str] @ (run expr)
+             | ScmVarDef' (_, expr) -> (run expr)
+             | ScmVarSet'(Var' (str, Free), expr) -> [ScmString str] @ (run expr)
+             | ScmVarSet' (_, expr) -> (run expr)                                  
              | ScmIf' (test, dit, dif) -> (run test) @ (run dit) @ (run dif)
-             | ScmBoxSet' (Var'(str, lex), expr) -> run expr
+             | ScmBox' _ -> []
+             | ScmBoxGet' _ -> []
+             | ScmBoxSet' (_, expr) -> run expr
              | ScmSeq' exprs -> runs exprs
              | ScmOr' exprs -> runs exprs
-             | ScmLambda' (params, _ , body) -> (run body)
+             | ScmLambda' (_, _ , body) -> (run body)
              | ScmApplic' (proc, args, _) -> (run proc) @ (runs args)
-             | _ -> []
+             | _ -> raise (X_this_should_not_happen "collect_constants")
            and runs exprs' =
              List.fold_left (fun consts expr' -> consts @ (run expr')) [] exprs'
            in
@@ -1891,30 +1897,58 @@ let sprint_exprs' chan exprs =
                 String.concat "\n"
                   (List.map (run params env) exprs')
              | ScmOr' exprs' ->
-                raise (X_not_yet_implemented "final project")
+                let label_end = make_or_end () in
+                let asm_code = 
+                  (match (list_and_last exprs') with 
+                  | Some (exprs', last) ->
+                     let exprs_code =
+                      String.concat ""
+                        (List.map (fun expr' -> let expr_code = run params env expr' in 
+                        expr_code ^ "\tcmp rax, sob_boolean_false\n" ^ "\tjne " ^ label_end ^ "\n") exprs') in
+                        let last_code = run params env last in
+                        exprs_code ^ last_code ^ (Printf.sprintf "%s:\n" label_end)
+                  | None -> run params env (ScmConst' (ScmBoolean false))) 
+                 in asm_code
+                 (* PASSED Simple test *)
              | ScmVarSet' (Var' (v, Free), expr') ->
-                raise (X_not_yet_implemented "final project")
+                let addrs = search_free_var_table v free_vars in
+                (run params env expr')
+                ^ (Printf.sprintf "\tmov qword [%s], rax\n" addrs)
+                ^ "\tmov rax, sob_void\n"
              | ScmVarSet' (Var' (v, Param minor), ScmBox' _) ->
-                raise (X_not_yet_implemented "final project")
+                "\tmov rdi, 8*1\n" ^ 
+                "\tcall malloc\n" ^
+                (Printf.sprintf "\tmov rbx, PARAM(%d)\n" minor) ^
+                "\tmov qword [rax], rbx\n" ^
+                (Printf.sprintf "\tmov PARAM(%d), rax\n" minor) ^
+                "\tmov rax, sob_void\n"
              | ScmVarSet' (Var' (v, Param minor), expr') ->
-                raise (X_not_yet_implemented "final project")
+                let expr_code = run params env expr' in
+                expr_code ^ (Printf.sprintf "\n\tmov qword [rbp+8*(4+%d)], rax\n" minor)
+                ^ "\tmov rax, sob_void\n"
              | ScmVarSet' (Var' (v, Bound (major, minor)), expr') ->
-                raise (X_not_yet_implemented "final project")
+                let expr_code = run params env expr' in
+                expr_code ^ (Printf.sprintf "\n\tmov rbx, qword [rbp+8*2]\n")
+                ^ (Printf.sprintf "\tmov rbx, qword [rbx+8*%d]\n" major)
+                ^ (Printf.sprintf "\tmov qword [rbx+8*%d], rax\n" minor)
+                ^ "\tmov rax, sob_void\n"
              | ScmVarDef' (Var' (v, Free), expr') ->
                 let label = search_free_var_table v free_vars in
                 (run params env expr')
                 ^ (Printf.sprintf "\tmov qword [%s], rax\n" label)
-                ^ "\tmov rax, sob_void\n"
+                ^ "\tmov rax, sob_void\n" (* PASSED Simple test *)
              | ScmVarDef' (Var' (v, Param minor), expr') ->
                 raise (X_not_yet_implemented "Support local definitions (param)")
              | ScmVarDef' (Var' (v, Bound (major, minor)), expr') ->
-                raise (X_not_yet_implemented "Support local definitions (bound)")
+                raise (X_not_yet_implemented "Support local definitions (param)")
              | ScmBox' _ -> assert false
              | ScmBoxGet' var' ->
                 (run params env (ScmVarGet' var'))
                 ^ "\tmov rax, qword [rax]\n"
              | ScmBoxSet' (var', expr') ->
-                raise (X_not_yet_implemented "final project")
+                let expr_code = run params env expr' in
+                expr_code ^ "\tpush rax\n" ^ (run params env (ScmVarGet' var')) ^ "\tpop qword [rax]\n" ^ "\tmov rax, sob_void\n"
+                (* PASSED Simple test *)
              | ScmLambda' (params', Simple, body) ->
                 let label_loop_env = make_lambda_simple_loop_env ()
                 and label_loop_env_end = make_lambda_simple_loop_env_end ()
@@ -1987,9 +2021,147 @@ let sprint_exprs' chan exprs =
                 and label_end = make_lambda_opt_end ()
                 and label_loop = make_lambda_opt_loop ()
                 and label_loop_exit = make_lambda_opt_loop_exit ()
-                in
-                raise (X_not_yet_implemented "final project")
-             | ScmApplic' (proc, args, Non_Tail_Call) -> 
+                and label_opt_build_more = make_lambda_opt_loop ()
+                and label_opt_build_exit_more = make_lambda_opt_loop_exit ()
+                and label_opt_update_stack = make_lambda_opt_loop ()
+                and label_opt_update_stack_exit = make_lambda_opt_loop_exit ()
+                and label_error_incorrect_arity_opt = "L_error_incorrect_arity_opt" in 
+                "\tmov rdi, (1 + 8 + 8)\n"
+                ^ "\tcall malloc\n"
+                ^ "\tpush rax\n"
+                ^ "\tmov rdi, 8 * " ^ (string_of_int params) ^ "\n"
+                ^ "\tcall malloc\n"
+                ^ "\tpush rax\n"
+                ^ "\tmov rdi, 8 * " ^ (string_of_int (env + 1)) ^ "\n"
+                ^ "\tcall malloc\n"
+                ^ "\tmov rdi, qword [rbp + 8 * 2]\n"
+                ^ "\tmov rdx, 1\n"
+                ^ "\tmov rsi, 0\n"
+                ^ label_loop_env ^ ":\n"
+                ^ "\tcmp rsi, " ^ (string_of_int env) ^ "\n"
+                ^ "\tje " ^ label_loop_env_end ^ "\n"
+                ^ "\tmov rcx, qword [rdi + 8 * rsi]\n"
+                ^ "\tmov qword [rax + 8 * rdx], rcx\n"
+                ^ "\tinc rsi\n"
+                ^ "\tinc rdx\n"
+                ^ "\tjmp " ^ label_loop_env ^ "\n"
+                ^ label_loop_env_end ^ ":\n"
+                ^ "\tpop rbx\n"
+                ^ "\tmov rsi, 0\n"
+                ^ label_loop_params ^ ":\t; copying parameters\n"
+                ^ "\tcmp rsi, " ^ (string_of_int params) ^ "\n"
+                ^ "\tje " ^ label_loop_params_end ^ "\n"
+                ^ "\tmov rdx, qword [rbp + 8 * rsi + 8 * 4]\n"
+                ^ "\tmov qword [rbx + 8 * rsi], rdx\n"
+                ^ "\tinc rsi\n"
+                ^ "\tjmp " ^ label_loop_params ^ "\n"
+                ^ label_loop_params_end ^ ":\n"
+                ^ "\tmov qword [rax], rbx\n"
+                ^ "\tmov rbx, rax\n"
+                ^ "\tpop rax\n"
+                ^ "\tmov byte [rax], T_closure\n"
+                ^ "\tmov SOB_CLOSURE_ENV(rax), rbx\n"
+                ^ "\tmov SOB_CLOSURE_CODE(rax), " ^ label_code ^ "\n"
+                ^ "\tjmp " ^ label_end ^ "\n"
+                ^ label_code ^ ":\t; body\n"
+                ^ "\tmov r8, qword [rsp + 8 * 2]\n"
+                ^ "\tmov r9, " ^ (string_of_int (List.length params' + 1)) ^ "\n"
+                ^ "\tlea r13, [r8 + 2] \n"
+                ^ "\tcmp qword [rsp + 8 * 2], " ^ (string_of_int (List.length params')) ^ "\n"
+                ^ "\tje " ^ label_arity_exact ^ "\n"
+                ^ "\tja " ^ label_arity_more ^ "\n"
+                ^ "\tpush qword [rsp + 8 * 2]\n"
+                ^ "\tpush " ^ (string_of_int (List.length params')) ^ "\n"
+                ^ "\tjmp " ^ label_error_incorrect_arity_opt ^ "\n"
+                ^ label_arity_more ^ ":\n"
+                ^ "\tmov r15, r8\n"
+                ^ "\tsub r15, r9\n"
+                ^ "\tlea rcx, [r15 + 1]\n"
+                ^ "\tlea r12, [rsp + 8 * r8 + 8 * 2]\n"
+                ^ "\tmov r11, sob_nil\n"
+                ^ label_opt_build_more ^ ":\n"
+                ^ "\tcmp rcx, 0\n"
+                ^ "\tje " ^ label_opt_build_exit_more ^ "\n"
+                ^ "\tmov rdi, (1 + 8 + 8)\n"
+                ^ "\tcall malloc\n"
+                ^ "\tmov byte [rax], T_pair\n"
+                ^ "\tmov rbx, qword [r12]\n"
+                ^ "\tmov qword [rax + 1], rbx\n"
+                ^ "\tmov qword [rax + 1 + 8], r11\n"
+                ^ "\tmov r11, rax\n"
+                ^ "\tsub r12, 8\n"
+                ^ "\tdec rcx\n"
+                ^ "\tjmp " ^ label_opt_build_more ^ "\n"
+                ^ label_opt_build_exit_more ^ ":\n"
+                ^ "\tlea r10, [rsp + 8 * " ^ (string_of_int (List.length params')) ^ " + 8 * 3]\n"
+                ^ "\tmov qword [r10], r11\n"
+                ^ "\tlea r13, [8 * r13]\n"
+                ^ "\tadd r13, rsp\n"
+                ^ "\tmov r14, " ^ (string_of_int (List.length params' + 3)) ^ "\n"
+                ^ "\tmov rcx, 4 + " ^ (string_of_int (List.length params')) ^ "\n"
+                ^ label_opt_update_stack ^ ":\n"
+                ^ "\tcmp rcx, 0\n"
+                ^ "\tje " ^ label_opt_update_stack_exit ^ "\n"
+                ^ "\tmov r11, qword [r10]\n"
+                ^ "\tmov qword [r13], r11\n"
+                ^ "\tsub r10, 8\n"
+                ^ "\tsub r13, 8\n"
+                ^ "\tdec rcx\n"
+                ^ "\tjmp " ^ label_opt_update_stack ^ "\n"
+                ^ label_opt_update_stack_exit ^ ":\n"
+                ^ "\tadd r13, 8\n"
+                ^ "\tmov rsp, r13\n"
+                ^ "jmp " ^ label_stack_ok ^ "\n"
+                ^ label_arity_exact ^ ":\n"
+                ^ "\tmov r8, qword [rsp - 8 * 0]\n"
+                ^ "\tmov qword [rsp - 8 * 1], r8\n"
+                ^ "\tmov r8, qword [rsp + 8 * 1]\n"
+                ^ "\tmov qword [rsp + 8 * 0], r8\n"
+                ^ "\tmov r8, qword [rsp + 8 * 2]\n"
+                ^ "\tmov rcx, r8\n"
+                ^ "\tinc r8\n"
+                ^ "\tmov qword [rsp + 8 * 1], r8\n"
+                ^ "\tmov rdx, rsp\n"
+                ^ "\tadd rdx, 24\n"
+                ^ label_loop ^ ":\n"
+                ^ "\tcmp rcx, 0\n"
+                ^ "\tje " ^ label_loop_exit ^ "\n"
+                ^ "\tmov r8, [rdx]\n"
+                ^ "\tmov qword [rdx - 8], r8\n"
+                ^ "\tadd rdx, 8\n"
+                ^ "\tdec rcx\n"
+                ^ "\tjmp " ^ label_loop ^ "\n"
+                ^ label_loop_exit ^ ":\n"
+                ^ "\tmov qword [rdx - 8], sob_nil\n"
+                ^ "\tsub rsp, 8\n"
+                ^ label_stack_ok ^ ":\n"
+                ^ "\tmov qword [rsp + 8 * 2], " ^ (string_of_int (List.length params' + 1)) ^ "\n"
+                ^ "\tenter 0, 0\n"
+                ^ (run (List.length params' + 1) (env + 1) body)
+                ^ "\tleave\n"
+                ^ "\tret 8 * (2 + " ^ (string_of_int (List.length params' + 1)) ^ ")\n"
+                ^ label_end ^ ":\n"
+              | ScmApplic' (proc, args, Non_Tail_Call) -> 
+                let args_code =
+                  String.concat ""
+                  (List.map
+                    (fun arg ->
+                    let arg_code = run params env arg in
+                    arg_code
+                    ^ "\tpush rax\n")
+                    (List.rev args)) in
+                let proc_code = run params env proc in
+                "\t; preparing a non-tail-call\n"
+                ^ args_code
+                ^ (Printf.sprintf "\tpush %d\n" (List.length args))
+                ^ proc_code
+                ^ "\tcmp byte [rax], T_closure\n"
+                ^ "\tjne L_error_non_closure\n"
+                ^ "\tpush SOB_CLOSURE_ENV(rax)\n"
+                ^ "\tcall SOB_CLOSURE_CODE(rax)\n"
+             | ScmApplic' (proc, args, Tail_Call) -> 
+              let tc_applic_recycle_frame_loop_label = make_tc_applic_recycle_frame_loop ()
+              and tc_applic_recycle_frame_done_label = make_tc_applic_recycle_frame_done () in
                 let args_code =
                   String.concat ""
                     (List.map
@@ -1999,16 +2171,34 @@ let sprint_exprs' chan exprs =
                          ^ "\tpush rax\n")
                        (List.rev args)) in
                 let proc_code = run params env proc in
-                "\t; preparing a non-tail-call\n"
+                "\t;debug: preparing a tail-call\n"
                 ^ args_code
-                ^ (Printf.sprintf "\tpush %d\t; arg count\n" (List.length args))
+                ^ "\tpush " ^ (string_of_int (List.length args)) ^"\t; argc\n"
                 ^ proc_code
                 ^ "\tcmp byte [rax], T_closure\n"
                 ^ "\tjne L_error_non_closure\n"
                 ^ "\tpush SOB_CLOSURE_ENV(rax)\n"
-                ^ "\tcall SOB_CLOSURE_CODE(rax)\n"
-             | ScmApplic' (proc, args, Tail_Call) -> 
-                raise (X_not_yet_implemented "final project")
+                ^ "\tpush qword [rbp + 8 * 1]\n"
+                ^ "\tpush qword [rbp]\n"
+                (* Fixing stack - Start *)
+                ^ "\tmov rdi, qword [rbp + 8 * 3]\n"
+                ^ "\tlea rdi, [rbp + 8 * rdi + 8 * 3]\n"
+                ^ "\tmov rcx, 4 + " ^ (string_of_int (List.length args)) ^ "\n"
+                ^ "\tlea rsi, [rbp - 8]\n"
+                ^ tc_applic_recycle_frame_loop_label ^ ":\n" 
+                ^ "\tcmp rcx, 0\n"
+                ^ "\tje " ^ tc_applic_recycle_frame_done_label ^ "\n"
+                ^ "\tmov r10, qword [rsi]\n"
+                ^ "\tmov qword [rdi], r10\n"
+                ^ "\tsub rdi, 8\n"
+                ^ "\tsub rsi, 8\n"
+                ^ "\tdec rcx\n"
+                ^ "\tjmp " ^ tc_applic_recycle_frame_loop_label ^ "\n"
+                ^ tc_applic_recycle_frame_done_label ^ ":\n"
+                ^ "\tlea rsp, [rdi + 8]\n"
+                (* Fixing stack - End *)
+                ^ "\tpop rbp\n"
+                ^ "\tjmp SOB_CLOSURE_CODE(rax)\n"
            and runs params env exprs' =
              List.map (fun expr' -> run params env expr') exprs' in
            let codes = runs 0 0 exprs' in
@@ -2044,7 +2234,9 @@ let sprint_exprs' chan exprs =
        
          let compile_and_run_scheme_string file_out_base user =
            let init = file_to_string "init.scm" in
-           let source_code = init ^ "\n" ^ user in
+           let test = "" in
+           let test = file_to_string "torture-test-for-compiler-00.scm" in
+           let source_code = init ^ "\n" ^ test ^  "\n" ^ user in
            let sexprs = (PC.star Reader.nt_sexpr source_code 0).found in
            let exprs = List.map Tag_Parser.tag_parse sexprs in
            let exprs' = List.map Semantic_Analysis.semantics exprs in

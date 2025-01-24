@@ -331,7 +331,6 @@
     (set! >= (make-run bin>=?))
     (set! = (make-run bin=?))))
 
-
 ;;; Replaced with the corresponding procedure in assembly,
 ;;; in the epilog.asm file
 #;(define make-list

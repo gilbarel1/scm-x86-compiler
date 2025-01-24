@@ -90,6 +90,7 @@ fmt_error_improper_list:
 	db `!!! The argument is not a proper list!\n\0`
 
 section .bss
+
 memory:
 	resb gbytes(1)
 
@@ -883,7 +884,52 @@ L_code_ptr_lognot:
         ret AND_KILL_FRAME(1)
 
 L_code_ptr_bin_apply:
-;;; fill in for final project!
+        mov  r8, rbp
+        push qword [rbp]
+        mov rbp, rsp                    ; Saves the old stack pointer
+        
+        ; calculate argc
+        mov rsi, PARAM(1)
+	mov rdi, rsi                    ; rdi -> car list
+	mov rcx, 0                      ; argc
+
+L_bin_apply_calc_argc_loop:
+	cmp rdi, sob_nil                
+	je L_bin_apply_calc_argc_end_loop
+	cmp byte [rdi], T_pair          ; validate if the list is a pair
+        jne L_error_incorrect_type
+	mov rdi, qword [rdi + 1 + 8]    ; rdi -> cdr list
+	inc rcx
+	jmp L_bin_apply_calc_argc_loop
+
+L_bin_apply_calc_argc_end_loop:
+        lea r11, [8 * (rcx - 3)]        ; Setup stack frame
+        sub rsp, r11
+        mov r10, qword [rbp + 8 * 1]    ; r10 points to return address
+        mov qword [rsp], r10
+        mov r10, PARAM(0)               ; r10 -> environment of the closure
+        cmp byte [r10], T_closure       ; validate if it's a closure
+        jne L_error_incorrect_type
+        mov rax, qword [r10 + 1]        ; rax -> env of closure
+        mov qword [rsp + 8 * 1], rax    ; push env
+        mov qword [rsp + 8 * 2], rcx    ; push argc
+        ; Push all args into the stack
+        lea r9, [rsp + 8 * 3]           ; r9 points to the address of the last arg pushed into the stack
+	mov rdi, rsi                    ; rdi -> pointer to the list
+
+L_bin_apply_args_push_loop:
+	cmp rdi, sob_nil
+	je L_bin_apply_call_and_exit
+        mov rax, qword [rdi + 1]        ; rax -> car list
+        mov qword [r9], rax
+        add r9, 8                       ; point to the next address in the stack (where cdr list will be stored)
+        mov rdi, qword [rdi + 1 + 8]    ; rax -> cdr list
+	jmp L_bin_apply_args_push_loop
+        
+L_bin_apply_call_and_exit:
+        mov  rbp, r8
+        jmp SOB_CLOSURE_CODE(r10)       ; tail call the function to all elements
+        
 
 L_code_ptr_is_null:
         enter 0, 0
@@ -2267,3 +2313,5 @@ fmt_scheme_error_part_2:
         db `    with the following message:\n\n\0`
 fmt_scheme_error_part_3:
         db `\n\nGoodbye!\n\n\0`
+
+section .note.GNU-stack noalloc noexec nowrite progbits
