@@ -884,60 +884,51 @@ L_code_ptr_lognot:
         ret AND_KILL_FRAME(1)
 
 L_code_ptr_bin_apply:
-        ; Save the old stack pointer
         mov  r8, rbp
         push qword [rbp]
-        mov rbp, rsp    
+        mov rbp, rsp                    ; Saves the old stack pointer
         
-        ; Calculate the number of the args - argv[1].length
-        mov rsi, PARAM(1); rsi - point to the first var in the list
-	mov rdi, rsi
-	mov rcx, 0
+        ; calculate argc
+        mov rsi, PARAM(1)
+	mov rdi, rsi                    ; rdi -> car list
+	mov rcx, 0                      ; argc
 
-.L_bin_apply_calc_number_of_args:
-	cmp rdi, sob_nil
-	je .L_bin_apply_end_calc_loop
-	cmp byte [rdi], T_pair
+L_bin_apply_calc_argc_loop:
+	cmp rdi, sob_nil                
+	je L_bin_apply_calc_argc_end_loop
+	cmp byte [rdi], T_pair          ; validate if the list is a pair
         jne L_error_incorrect_type
-	mov rdi, qword [rdi + 1 + 8] ; rdi = cdr list
+	mov rdi, qword [rdi + 1 + 8]    ; rdi -> cdr list
 	inc rcx
-	jmp .L_bin_apply_calc_number_of_args
+	jmp L_bin_apply_calc_argc_loop
 
-.L_bin_apply_end_calc_loop:
-        ; Update rsp -> rsp - 8 * argv[1].length
-        lea r11, [8*(rcx - 3)]
+L_bin_apply_calc_argc_end_loop:
+        lea r11, [8 * (rcx - 3)]        ; Setup stack frame
         sub rsp, r11
-
-        ; Save return address of the closure
-        mov r10, qword [rbp + 8 * 1] ; r10 points to return address
+        mov r10, qword [rbp + 8 * 1]    ; r10 points to return address
         mov qword [rsp], r10
-
-        ; Save environment of the closure
-        mov r10, PARAM(0)
-        cmp byte [r10], T_closure
+        mov r10, PARAM(0)               ; r10 -> environment of the closure
+        cmp byte [r10], T_closure       ; validate if it's a closure
         jne L_error_incorrect_type
-        mov rax, qword [r10 + 1] ; rax -> env
-        mov qword [rsp + 8 * 1], rax
+        mov rax, qword [r10 + 1]        ; rax -> env of closure
+        mov qword [rsp + 8 * 1], rax    ; push env
+        mov qword [rsp + 8 * 2], rcx    ; push argc
+        ; Push all args into the stack
+        lea r9, [rsp + 8 * 3]           ; r9 points to the address of the last arg pushed into the stack
+	mov rdi, rsi                    ; rdi -> pointer to the list
 
-        ; Save new argc
-        mov qword [rsp + 8 * 2], rcx
-
-        ; Push all args in argv[1] to the stack
-        lea r9, [rsp + 8 * 3]
-	mov rdi, rsi; rsi - point to the first var in the list
-
-.L_bin_apply_recycle_frame_loop:
+L_bin_apply_args_push_loop:
 	cmp rdi, sob_nil
-	je .L_bin_apply_recycle_frame_done
-        mov rax, qword [rdi + 1] ; rax -> car list
+	je L_bin_apply_call_and_exit
+        mov rax, qword [rdi + 1]        ; rax -> car list
         mov qword [r9], rax
-        add r9, 8
-        mov rdi, qword [rdi + 1 + 8] ; rax -> cdr list
-	jmp .L_bin_apply_recycle_frame_loop
+        add r9, 8                       ; point to the next address in the stack (where cdr list will be stored)
+        mov rdi, qword [rdi + 1 + 8]    ; rax -> cdr list
+	jmp L_bin_apply_args_push_loop
         
-.L_bin_apply_recycle_frame_done:
+L_bin_apply_call_and_exit:
         mov  rbp, r8
-        jmp SOB_CLOSURE_CODE(r10)
+        jmp SOB_CLOSURE_CODE(r10)       ; tail call the function to all elements
         
 
 L_code_ptr_is_null:

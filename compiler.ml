@@ -2173,7 +2173,7 @@ let sprint_exprs' chan exprs =
                 let proc_code = run params env proc in
                 "\t;debug: preparing a tail-call\n"
                 ^ args_code
-                ^ "\tpush " ^ (string_of_int (List.length args)) ^"\t; arg count\n"
+                ^ "\tpush " ^ (string_of_int (List.length args)) ^"\t; argc\n"
                 ^ proc_code
                 ^ "\tcmp byte [rax], T_closure\n"
                 ^ "\tjne L_error_non_closure\n"
@@ -2235,7 +2235,7 @@ let sprint_exprs' chan exprs =
          let compile_and_run_scheme_string file_out_base user =
            let init = file_to_string "init.scm" in
            let test = "" in
-           (*let test = file_to_string "torture-test-for-compiler-00.scm" in*)
+           let test = file_to_string "torture-test-for-compiler-00.scm" in
            let source_code = init ^ "\n" ^ test ^  "\n" ^ user in
            let sexprs = (PC.star Reader.nt_sexpr source_code 0).found in
            let exprs = List.map Tag_Parser.tag_parse sexprs in
